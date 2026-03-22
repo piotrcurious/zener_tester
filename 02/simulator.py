@@ -120,18 +120,18 @@ def simulate_system():
     temp_pid = PID(kp=100.0, ki=1.0, kd=10.0, out_min=-1023, out_max=1023)
 
     temp_start = 10.0
-    temp_end = 40.0
-    steps = 4
+    temp_end = 60.0
+    temp_step = 10.0 # Matching the new .ino
 
     print(f"{'Target T':>10} | {'Actual T':>10} | {'PWM Duty':>10} | {'SupplyV':>10} | {'ZenerV':>10}")
     print("-" * 65)
 
-    for i in range(steps):
-        target = temp_start + i * (temp_end - temp_start) / (steps - 1)
-        temp_pid.setpoint = target
+    t = temp_start
+    while t <= temp_end:
+        temp_pid.setpoint = t
 
         # Settle temperature (simulated)
-        for _ in range(500):
+        for _ in range(1000): # More settle time for 10 degree steps
             arduino.update_physics()
             output = temp_pid.compute(arduino.adt75.temp)
             if output > 0:
@@ -141,15 +141,20 @@ def simulate_system():
                 arduino.ledcWrite(0, abs(output))
                 arduino.ledcWrite(1, 0)
 
+        # New plot per temperature step
+        print(f"--- Plotting for Temp: {t} C ---")
+
         # Sweep Zener for this temperature
-        for d in [200, 400, 600, 800]: # Sample duties
+        for d in range(0, 1024, 256): # Sample duties including near max
             arduino.ledcWrite(2, d)
             arduino.update_physics()
 
             v_conv = arduino.analogRead(34) * (3.3/4095.0) * 11.0
             v_zener = arduino.analogRead(35) * (3.3/4095.0) * 11.0
 
-            print(f"{target:10.2f} | {arduino.adt75.temp:10.2f} | {d:10d} | {v_conv:10.2f} | {v_zener:10.2f}")
+            print(f"{t:10.2f} | {arduino.adt75.temp:10.2f} | {d:10d} | {v_conv:10.2f} | {v_zener:10.2f}")
+
+        t += temp_step
 
 if __name__ == "__main__":
     simulate_system()
