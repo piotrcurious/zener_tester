@@ -4,15 +4,14 @@
 #include <PID_v1.h>
 
 /*
- * Integrated Zener Diode Tester with Temperature Control
+ * Integrated Zener Diode Tester with Compound Temperature Plotting
  *
  * Features:
  * - PID-controlled Heating and Cooling
  * - ADT75 12-bit I2C Temperature Sensor support
  * - Automated Temperature Sweep (10°C steps)
- * - Clear Plot per Temperature Step on BlueDisplay
- * - Automated Zener Diode V-I characteristic sweep
- * - Serial CSV output with step markers
+ * - Compound Plotting on BlueDisplay: Each temperature step uses a unique color.
+ * - Structured CSV Output: Optimized for gnuplot and external analysis.
  */
 
 // --- Hardware Pins ---
@@ -40,7 +39,7 @@ PID tempPID(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
 // --- Sweep Parameters ---
 float tempStart = 10.0;
 float tempEnd = 60.0;
-float tempStepSize = 10.0; // 10 degree steps as requested
+float tempStepSize = 10.0;
 int zenerSteps = 256;
 unsigned long stabilizeDelayMs = 2000;
 unsigned long stepDelayMs = 50;
@@ -78,6 +77,14 @@ void setPeltier(double val) {
   }
 }
 
+// Map temperature to a color (Blue -> Cold, Red -> Hot)
+uint16_t getTempColor(float t) {
+  // Simple color mapping from tempStart (Blue) to tempEnd (Red)
+  uint8_t r = (uint8_t)map((long)(t * 10), (long)(tempStart * 10), (long)(tempEnd * 10), 0, 31);
+  uint8_t b = (uint8_t)map((long)(t * 10), (long)(tempStart * 10), (long)(tempEnd * 10), 31, 0);
+  return (r << 11) | b; // Simple 5-6-5 RGB with G=0
+}
+
 void setup() {
   Serial.begin(115200);
   Wire.begin();
@@ -97,23 +104,21 @@ void setup() {
   delay(1000);
   myDisplay.clearDisplay(COLOR_WHITE);
   myDisplay.setTitle("Integrated Zener Tester");
+  myDisplay.drawGrid(20, 20, COLOR_LIGHTGRAY);
 
-  Serial.println("--- START OF TEST ---");
-  Serial.println("TargetTemp,ActualTemp,Duty,ConvVolt,ZenerVolt");
+  // CSV header prefixed with # for gnuplot compatibility
+  Serial.println("# TargetTemp,ActualTemp,Duty,ConvVolt,ZenerVolt");
 }
 
 void performZenerSweep(float targetTemp, float currentTemp) {
   int displayWidth = myDisplay.getDisplayWidth();
   int displayHeight = myDisplay.getDisplayHeight();
+  uint16_t plotColor = getTempColor(targetTemp);
 
-  // Clear plot for each temperature step as requested
-  myDisplay.clearDisplay(COLOR_WHITE);
+  // No longer clearing display here, creating compound graph
   char buf[32];
-  sprintf(buf, "Temp Step: %.1f C", targetTemp);
+  sprintf(buf, "Current Step: %.1f C", targetTemp);
   myDisplay.drawText(10, 10, buf, 1, COLOR_BLACK, COLOR_WHITE);
-  myDisplay.drawGrid(20, 20, COLOR_LIGHTGRAY);
-
-  Serial.print("# New Sweep at "); Serial.print(targetTemp); Serial.println(" C");
 
   for (int d = 0; d <= PWM_MAX; d += (PWM_MAX / zenerSteps + 1)) {
     ledcWrite(CH_ZENER, d);
@@ -125,6 +130,7 @@ void performZenerSweep(float targetTemp, float currentTemp) {
     float vConv = rawConv * (3.3 / 4095.0) * 11.0;
     float vZener = rawZener * (3.3 / 4095.0) * 11.0;
 
+    // Output line
     Serial.print(targetTemp); Serial.print(",");
     Serial.print(currentTemp); Serial.print(",");
     Serial.print(d); Serial.print(",");
@@ -134,18 +140,19 @@ void performZenerSweep(float targetTemp, float currentTemp) {
     // Plotting: X=Supply, Y=Zener
     int px = map(rawConv, 0, 4095, 0, displayWidth);
     int py = map(4095 - rawZener, 0, 4095, 0, displayHeight);
-    myDisplay.plot(px, py, COLOR_RED);
+    myDisplay.plot(px, py, plotColor);
   }
   ledcWrite(CH_ZENER, 0);
+  // Add an empty line to the CSV to separate datasets in gnuplot
+  Serial.println("");
 }
 
 void loop() {
   for (float t = tempStart; t <= tempEnd; t += tempStepSize) {
     setpoint = t;
-    Serial.print("Stabilizing at "); Serial.print(setpoint); Serial.println(" C...");
 
     unsigned long startWait = millis();
-    while (millis() - startWait < 60000) { // Max 60s for large steps
+    while (millis() - startWait < 60000) {
       input = readTemperature();
       if (input == -999.0) break;
 
@@ -162,7 +169,7 @@ void loop() {
     performZenerSweep(setpoint, readTemperature());
   }
 
-  Serial.println("--- ALL SWEEPS COMPLETE ---");
+  Serial.println("# ALL SWEEPS COMPLETE");
   setPeltier(0);
   while(1) {
     myDisplay.drawText(10, 10, "TEST FINISHED", 2, COLOR_RED, COLOR_WHITE);

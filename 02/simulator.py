@@ -123,8 +123,7 @@ def simulate_system():
     temp_end = 60.0
     temp_step = 10.0 # Matching the new .ino
 
-    print(f"{'Target T':>10} | {'Actual T':>10} | {'PWM Duty':>10} | {'SupplyV':>10} | {'ZenerV':>10}")
-    print("-" * 65)
+    print("# TargetTemp,ActualTemp,Duty,ConvVolt,ZenerVolt")
 
     t = temp_start
     while t <= temp_end:
@@ -141,9 +140,7 @@ def simulate_system():
                 arduino.ledcWrite(0, abs(output))
                 arduino.ledcWrite(1, 0)
 
-        # New plot per temperature step
-        print(f"--- Plotting for Temp: {t} C ---")
-
+        # Structured output for easy gnuplot parsing
         # Sweep Zener for this temperature
         for d in range(0, 1024, 256): # Sample duties including near max
             arduino.ledcWrite(2, d)
@@ -152,8 +149,10 @@ def simulate_system():
             v_conv = arduino.analogRead(34) * (3.3/4095.0) * 11.0
             v_zener = arduino.analogRead(35) * (3.3/4095.0) * 11.0
 
-            print(f"{t:10.2f} | {arduino.adt75.temp:10.2f} | {d:10d} | {v_conv:10.2f} | {v_zener:10.2f}")
+            # Match the new .ino format
+            print(f"{t:.2f},{arduino.adt75.temp:.2f},{d},{v_conv:.2f},{v_zener:.2f}")
 
+        print("") # Blank line to separate datasets for gnuplot
         t += temp_step
 
 if __name__ == "__main__":
