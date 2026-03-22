@@ -124,11 +124,16 @@ void performZenerSweep(float targetTemp, float currentTemp) {
     ledcWrite(CH_ZENER, d);
     delay(stepDelayMs);
 
-    int rawConv = analogRead(PIN_ANA_CONV_VOLT);
-    int rawZener = analogRead(PIN_ANA_ZENER_VOLT);
-
-    float vConv = rawConv * (3.3 / 4095.0) * 11.0;
-    float vZener = rawZener * (3.3 / 4095.0) * 11.0;
+    // Use analogReadMilliVolts for better accuracy and averaging to reduce noise
+    uint32_t mvConv = 0;
+    uint32_t mvZener = 0;
+    for (int i = 0; i < 10; i++) {
+      mvConv += analogReadMilliVolts(PIN_ANA_CONV_VOLT);
+      mvZener += analogReadMilliVolts(PIN_ANA_ZENER_VOLT);
+      delay(1);
+    }
+    float vConv = (mvConv / 10.0) / 1000.0 * 11.0;
+    float vZener = (mvZener / 10.0) / 1000.0 * 11.0;
 
     // Output line
     Serial.print(targetTemp); Serial.print(",");
@@ -137,9 +142,9 @@ void performZenerSweep(float targetTemp, float currentTemp) {
     Serial.print(vConv); Serial.print(",");
     Serial.println(vZener);
 
-    // Plotting: X=Supply, Y=Zener
-    int px = map(rawConv, 0, 4095, 0, displayWidth);
-    int py = map(4095 - rawZener, 0, 4095, 0, displayHeight);
+    // Plotting: X=Supply (0-40V), Y=Zener (0-40V)
+    int px = (int)((vConv / 40.0) * displayWidth);
+    int py = displayHeight - (int)((vZener / 40.0) * displayHeight);
     myDisplay.plot(px, py, plotColor);
   }
   ledcWrite(CH_ZENER, 0);
